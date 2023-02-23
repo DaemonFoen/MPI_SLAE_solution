@@ -1,10 +1,9 @@
 #include <stdio.h>
-#include <time.h>
 #include <mpi.h>
 #include "malloc.h"
 #include "math.h"
 
-#define N 16000 // matrix size
+#define N 14400 // matrix size
 
 double norm (const double * vector, int size){
     double norm = 0;
@@ -43,8 +42,8 @@ int** separator(int comm_size, int capacity, int** previous_separation_parameter
             int capacity_copy = capacity;
             int i = 0;
             while (i < comm_size - 1) {
-                capacity_copy -= N;
-                len_array[i] = N;
+                capacity_copy -= N*(N/comm_size);
+                len_array[i] = N*(N/comm_size);
                 ++i;
             }
             len_array[i] = capacity_copy;
@@ -102,10 +101,10 @@ int accuracy (const double * x_next, const double * receiver_array, const double
 
     double first_norm = norm(y_n,N);
     printf(" %f accuracy norm\n",first_norm);
-//    free(y_fragment);
-//    free(y_n);
+    free(y_fragment);
+    free(y_n);
     if (first_norm/b_norm < epsilon){
-        printf(" %lf accuracy norm > %lf epsilon\n",first_norm/b_norm, epsilon);
+//        printf(" %lf accuracy norm > %lf epsilon\n",first_norm/b_norm, epsilon);
         return 1;
     }
     else {
@@ -120,6 +119,13 @@ double * iterative_algorithm(const double *x_previous, const double * matrix_fra
 
     int comm_size;
     MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
+
+
+//    for (int i = 0; i < matrix_separation_parameters[0][rank]; ++i) {
+//        printf("%f - %d element\n",matrix_fragment[i],i);
+//    }
+    
+
 
     double* y_fragment = (double *)malloc(sizeof (double) * (matrix_separation_parameters[0][rank] / N));
     for (int i = 0; i < (matrix_separation_parameters[0][rank] / N) ; ++i) {
@@ -206,11 +212,7 @@ double * iterative_algorithm(const double *x_previous, const double * matrix_fra
 int main() {
     MPI_Init(NULL, NULL);
 
-    struct timespec start, end;
-    clock_gettime(CLOCK_MONOTONIC_RAW,&start);
-
-    FILE* file_out;
-
+    double start_time = MPI_Wtime();
     int capacity = N*N;
 
     int comm_size;
@@ -219,15 +221,15 @@ int main() {
     int rank;
     MPI_Comm_rank(MPI_COMM_WORLD,&rank);
 
-    if (rank == 0){
-       file_out = fopen("time.txt", "w");
-    }
 
     int** matrix_separation_parameters = separator(comm_size, capacity, NULL);
     int** x_separation_parameters = separator(comm_size, N, matrix_separation_parameters);
     int** y_separation_parameters = separator(comm_size, N, matrix_separation_parameters);
     double* x_next_fragment = (double *)malloc(sizeof(double ) * (matrix_separation_parameters[0][rank] / N));
     double *receiver_array = (double *)malloc(sizeof(double) * matrix_separation_parameters[0][rank]);
+
+//    printf("\n%d rank contains %d elements\n\n",rank,matrix_separation_parameters[0][rank]);
+//    printf("\n%d rank  %d elements\n\n",rank,matrix_separation_parameters[1][rank]);
 
     double * x = (double *)malloc(sizeof(double) * N);
     double * tmp = x;
@@ -244,13 +246,15 @@ int main() {
         }
         MPI_Scatterv(matrix, matrix_separation_parameters[0], matrix_separation_parameters[1], MPI_DOUBLE, receiver_array, matrix_separation_parameters[0][rank], MPI_DOUBLE, 0, MPI_COMM_WORLD);
         for (int i = 0; i < N; ++i) {
-            b[i] = (i+20);
+            b[i] = (N+1);
         }
     }
 
     if ( rank != 0 ){
         MPI_Scatterv(matrix, matrix_separation_parameters[0], matrix_separation_parameters[1], MPI_DOUBLE, receiver_array, matrix_separation_parameters[0][rank], MPI_DOUBLE, 0, MPI_COMM_WORLD);
     }
+
+
 
     MPI_Bcast(b,N,MPI_DOUBLE,0,MPI_COMM_WORLD);
 
@@ -265,7 +269,7 @@ int main() {
     int count = 0;
     while ( flag == 0 ){
         double * x_next = iterative_algorithm(x,receiver_array,b, matrix_separation_parameters, y_separation_parameters, x_separation_parameters, x_next_fragment);
-        flag = accuracy(x_next,receiver_array,b,0.001,matrix_separation_parameters, y_separation_parameters,b_norm);
+        flag = accuracy(x_next,receiver_array,b,0.0000000000001,matrix_separation_parameters, y_separation_parameters,b_norm);
         x = x_next;
         count++;
         if (flag == 1 && rank == 0){
@@ -277,9 +281,9 @@ int main() {
 
     if (rank == 0){
         printf("\nnum of iteration %d\n", count);
-        fprintf(file_out,"\nnum of iteration %d\n", count);
         free(matrix);
     }
+
     free(x);
     free(tmp);
     free(b);
@@ -288,12 +292,8 @@ int main() {
     separator_free(y_separation_parameters);
     free(x_next_fragment);
     free(receiver_array);
-    clock_gettime(CLOCK_MONOTONIC_RAW,&end);
-    printf("Time taken: %lf sec.\n",end.tv_sec-start.tv_sec + 0.000000001* (end.tv_nsec-start.tv_nsec));
-    if (rank == 0){
-        fprintf(file_out,"Time taken: %lf sec.\n",end.tv_sec-start.tv_sec + 0.000000001* (end.tv_nsec-start.tv_nsec));
-        fclose(file_out);
-    }
+    double end_time = MPI_Wtime();
+    printf("Time taken: %lf sec.\n",end_time-start_time);
 
     MPI_Finalize();
     return 0;
