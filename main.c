@@ -3,7 +3,9 @@
 #include "malloc.h"
 #include "math.h"
 
-#define N 14400 // matrix size
+#define N 4000 // matrix size
+#define EPSILON 0.064518 //permissible error
+
 
 double norm (const double * vector, int size){
     double norm = 0;
@@ -79,7 +81,6 @@ int accuracy (const double * x_next, const double * receiver_array, const double
     int comm_size;
     MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
 
-
     double* y_fragment = (double*)malloc(sizeof (double) * (matrix_separation_parameters[0][rank] / N));
     for (int i = 0; i < (matrix_separation_parameters[0][rank] / N) ; ++i) {
         y_fragment[i] = 0;
@@ -95,16 +96,15 @@ int accuracy (const double * x_next, const double * receiver_array, const double
         y_fragment[i] -= b[i+rank];
     }
 
-
     double * y_n = (double *)malloc(sizeof(double ) *N);
     MPI_Allgatherv(y_fragment, y_separation_parameters[0][rank], MPI_DOUBLE, y_n, y_separation_parameters[0], y_separation_parameters[1], MPI_DOUBLE, MPI_COMM_WORLD);
 
     double first_norm = norm(y_n,N);
-    printf(" %f accuracy norm\n",first_norm);
+
+    printf("%lf norm accuracy \n",first_norm/b_norm);
     free(y_fragment);
     free(y_n);
     if (first_norm/b_norm < epsilon){
-//        printf(" %lf accuracy norm > %lf epsilon\n",first_norm/b_norm, epsilon);
         return 1;
     }
     else {
@@ -119,12 +119,6 @@ double * iterative_algorithm(const double *x_previous, const double * matrix_fra
 
     int comm_size;
     MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
-
-
-//    for (int i = 0; i < matrix_separation_parameters[0][rank]; ++i) {
-//        printf("%f - %d element\n",matrix_fragment[i],i);
-//    }
-    
 
 
     double* y_fragment = (double *)malloc(sizeof (double) * (matrix_separation_parameters[0][rank] / N));
@@ -184,7 +178,6 @@ double * iterative_algorithm(const double *x_previous, const double * matrix_fra
         MPI_Bcast(&t,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
     }
 
-
     for (int i = 0; i < matrix_separation_parameters[0][rank] / N; ++i) {
         x_next_fragment[i] = 0;
     }
@@ -228,8 +221,6 @@ int main() {
     double* x_next_fragment = (double *)malloc(sizeof(double ) * (matrix_separation_parameters[0][rank] / N));
     double *receiver_array = (double *)malloc(sizeof(double) * matrix_separation_parameters[0][rank]);
 
-//    printf("\n%d rank contains %d elements\n\n",rank,matrix_separation_parameters[0][rank]);
-//    printf("\n%d rank  %d elements\n\n",rank,matrix_separation_parameters[1][rank]);
 
     double * x = (double *)malloc(sizeof(double) * N);
     double * tmp = x;
@@ -245,15 +236,15 @@ int main() {
             }
         }
         MPI_Scatterv(matrix, matrix_separation_parameters[0], matrix_separation_parameters[1], MPI_DOUBLE, receiver_array, matrix_separation_parameters[0][rank], MPI_DOUBLE, 0, MPI_COMM_WORLD);
+//        read_vector(b);
         for (int i = 0; i < N; ++i) {
-            b[i] = (N+1);
+            b[i] = (N+((i)%100*i/N)+i%1000);
         }
     }
 
     if ( rank != 0 ){
         MPI_Scatterv(matrix, matrix_separation_parameters[0], matrix_separation_parameters[1], MPI_DOUBLE, receiver_array, matrix_separation_parameters[0][rank], MPI_DOUBLE, 0, MPI_COMM_WORLD);
     }
-
 
 
     MPI_Bcast(b,N,MPI_DOUBLE,0,MPI_COMM_WORLD);
@@ -269,18 +260,12 @@ int main() {
     int count = 0;
     while ( flag == 0 ){
         double * x_next = iterative_algorithm(x,receiver_array,b, matrix_separation_parameters, y_separation_parameters, x_separation_parameters, x_next_fragment);
-        flag = accuracy(x_next,receiver_array,b,0.0000000000001,matrix_separation_parameters, y_separation_parameters,b_norm);
+        flag = accuracy(x_next,receiver_array,b,EPSILON,matrix_separation_parameters, y_separation_parameters,b_norm);
         x = x_next;
         count++;
-        if (flag == 1 && rank == 0){
-            for (int i = 0; i < N; ++i) {
-                printf("%f\n",x_next[i]);
-            }
-        }
     }
 
     if (rank == 0){
-        printf("\nnum of iteration %d\n", count);
         free(matrix);
     }
 
